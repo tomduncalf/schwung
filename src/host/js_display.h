@@ -43,6 +43,10 @@ extern unsigned char js_display_screen_buffer[DISPLAY_WIDTH * DISPLAY_HEIGHT];
 /* Dirty flag - set when screen changes, host should check and clear */
 extern int js_display_screen_dirty;
 
+/* Clip rect */
+void js_display_set_clip(int x, int y, int w, int h);
+void js_display_clear_clip(void);
+
 /* Core display functions */
 void js_display_clear(void);
 void js_display_set_pixel(int x, int y, int value);
