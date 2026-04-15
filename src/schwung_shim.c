@@ -54,6 +54,7 @@
 #include "host/shadow_fd_trace.h"
 #include "host/shadow_state.h"
 #include "host/shadow_midi.h"
+#include "host/midi_net.h"
 
 /* Debug flags - set to 1 to enable various debug logging */
 #define SHADOW_TIMING_LOG 0      /* ioctl/DSP timing logs to /tmp */
@@ -146,6 +147,7 @@ static bool shadow_ui_enabled = true;      /* Shadow UI enabled by default */
 static bool display_mirror_enabled = false; /* Display mirror off by default */
 static bool set_pages_enabled = true;      /* Set pages enabled by default */
 static bool skipback_require_volume = false; /* false=Shift+Capture, true=Shift+Vol+Capture */
+static bool midi_net_cfg_enabled = false;  /* MIDI over WiFi off by default */
 
 /* Link Audio state, process management — moved to shadow_link_audio.c, shadow_process.c */
 
@@ -669,6 +671,19 @@ static void load_feature_config(void)
             while (*colon == ' ' || *colon == '\t') colon++;
             if (strncmp(colon, "false", 5) == 0) {
                 set_pages_enabled = false;
+            }
+        }
+    }
+
+    /* Parse midi_net_enabled (defaults to false) */
+    const char *midi_net_key = strstr(config_buf, "\"midi_net_enabled\"");
+    if (midi_net_key) {
+        const char *colon = strchr(midi_net_key, ':');
+        if (colon) {
+            colon++;
+            while (*colon == ' ' || *colon == '\t') colon++;
+            if (strncmp(colon, "true", 4) == 0) {
+                midi_net_cfg_enabled = true;
             }
         }
     }
@@ -2328,6 +2343,25 @@ static void shadow_mix_audio(void)
     /* Increment shim counter for shadow's drift correction */
     shadow_control->shim_counter++;
 
+    /* MIDI over WiFi live toggle: poll shadow_control->midi_net_enabled at 1Hz
+     * and start/stop the network thread accordingly. */
+    {
+        static uint32_t mn_last_tick = 0;
+        static int mn_last_state = -1;
+        if ((shadow_control->shim_counter - mn_last_tick) > 344) {  /* ~1 Hz */
+            mn_last_tick = shadow_control->shim_counter;
+            int want = shadow_control->midi_net_enabled ? 1 : 0;
+            if (want != mn_last_state) {
+                mn_last_state = want;
+                if (want) {
+                    if (!midi_net_is_running()) midi_net_start();
+                } else {
+                    if (midi_net_is_running()) midi_net_stop();
+                }
+            }
+        }
+    }
+
     /* Copy Move's audio to shared memory so shadow can mix it */
     if (shadow_movein_shm) {
         memcpy(shadow_movein_shm, mailbox_audio, AUDIO_BUFFER_SIZE);
@@ -2753,6 +2787,16 @@ static void shim_init_subsystems(void)
         shadow_control->display_mirror = display_mirror_enabled ? 1 : 0;
         shadow_control->set_pages_enabled = set_pages_enabled ? 1 : 0;
         shadow_control->skipback_require_volume = skipback_require_volume ? 1 : 0;
+        shadow_control->midi_net_enabled = midi_net_cfg_enabled ? 1 : 0;
+    }
+
+    /* Initialize MIDI over WiFi subsystem (Phase 1-4).
+     * Start the network thread if feature flag or features.json says so. */
+    midi_net_init(&shadow_midi_inject_shm, NULL);
+    if (midi_net_cfg_enabled || midi_net_flag_enabled()) {
+        if (midi_net_start() == 0) {
+            LOG_INFO("midi_net", "Started MIDI over WiFi at init");
+        }
     }
     /* Initialize process management subsystem */
     {

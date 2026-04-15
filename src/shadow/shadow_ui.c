@@ -1569,6 +1569,77 @@ static JSValue js_display_mirror_get(JSContext *ctx, JSValueConst this_val,
     return JS_NewBool(ctx, shadow_control->display_mirror != 0);
 }
 
+/* midi_net_set(enabled) - Write to shared memory + persist to features.json */
+static JSValue js_midi_net_set(JSContext *ctx, JSValueConst this_val,
+                               int argc, JSValueConst *argv) {
+    (void)this_val;
+    if (argc < 1 || !shadow_control) return JS_UNDEFINED;
+
+    int enabled = 0;
+    JS_ToInt32(ctx, &enabled, argv[0]);
+    shadow_control->midi_net_enabled = enabled ? 1 : 0;
+
+    /* Also touch/remove the flag file so the power-user escape hatch
+     * agrees with the UI setting. */
+    if (enabled) {
+        FILE *ff = fopen("/data/UserData/schwung/midi_net_on", "w");
+        if (ff) { fputc('1', ff); fclose(ff); }
+    } else {
+        unlink("/data/UserData/schwung/midi_net_on");
+    }
+
+    /* Persist to features.json */
+    const char *config_path = "/data/UserData/schwung/config/features.json";
+    char buf[512];
+    size_t len = 0;
+    FILE *f = fopen(config_path, "r");
+    if (f) {
+        len = fread(buf, 1, sizeof(buf) - 1, f);
+        fclose(f);
+    }
+    buf[len] = '\0';
+
+    char *key = strstr(buf, "\"midi_net_enabled\"");
+    if (key) {
+        char *colon = strchr(key, ':');
+        if (colon) {
+            colon++;
+            while (*colon == ' ') colon++;
+            char *val_end = colon;
+            while (*val_end && *val_end != ',' && *val_end != '\n' && *val_end != '}') val_end++;
+            char newbuf[512];
+            int prefix_len = (int)(colon - buf);
+            int suffix_start = (int)(val_end - buf);
+            snprintf(newbuf, sizeof(newbuf), "%.*s%s%s",
+                     prefix_len, buf,
+                     enabled ? "true" : "false",
+                     buf + suffix_start);
+            f = fopen(config_path, "w");
+            if (f) { fputs(newbuf, f); fclose(f); }
+        }
+    } else if (len > 0) {
+        char *brace = strrchr(buf, '}');
+        if (brace) {
+            char newbuf[512];
+            int prefix_len = (int)(brace - buf);
+            snprintf(newbuf, sizeof(newbuf), "%.*s,\n  \"midi_net_enabled\": %s\n}",
+                     prefix_len, buf, enabled ? "true" : "false");
+            f = fopen(config_path, "w");
+            if (f) { fputs(newbuf, f); fclose(f); }
+        }
+    }
+
+    return JS_UNDEFINED;
+}
+
+/* midi_net_get() -> bool - Read from shared memory */
+static JSValue js_midi_net_get(JSContext *ctx, JSValueConst this_val,
+                               int argc, JSValueConst *argv) {
+    (void)this_val; (void)argc; (void)argv;
+    if (!shadow_control) return JS_NewBool(ctx, 0);
+    return JS_NewBool(ctx, shadow_control->midi_net_enabled != 0);
+}
+
 /* set_pages_set(enabled) - Write to shared memory + persist to features.json */
 static JSValue js_set_pages_set(JSContext *ctx, JSValueConst this_val,
                                 int argc, JSValueConst *argv) {
@@ -2155,6 +2226,10 @@ static void init_javascript(JSRuntime **prt, JSContext **pctx) {
     /* Register display mirror functions */
     JS_SetPropertyStr(ctx, global_obj, "display_mirror_set", JS_NewCFunction(ctx, js_display_mirror_set, "display_mirror_set", 1));
     JS_SetPropertyStr(ctx, global_obj, "display_mirror_get", JS_NewCFunction(ctx, js_display_mirror_get, "display_mirror_get", 0));
+
+    /* Register MIDI over WiFi functions */
+    JS_SetPropertyStr(ctx, global_obj, "midi_net_set", JS_NewCFunction(ctx, js_midi_net_set, "midi_net_set", 1));
+    JS_SetPropertyStr(ctx, global_obj, "midi_net_get", JS_NewCFunction(ctx, js_midi_net_get, "midi_net_get", 0));
 
     /* Register set pages functions */
     JS_SetPropertyStr(ctx, global_obj, "set_pages_set", JS_NewCFunction(ctx, js_set_pages_set, "set_pages_set", 1));

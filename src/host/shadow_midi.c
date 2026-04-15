@@ -7,6 +7,7 @@
 #include "shadow_midi.h"
 #include "shadow_chain_mgmt.h"
 #include "shadow_led_queue.h"
+#include "midi_net.h"
 
 /* ============================================================================
  * Host callbacks (set by midi_routing_init)
@@ -294,6 +295,12 @@ void shadow_inject_ui_midi_out(void)
 
         memcpy(&midi_out[hw_offset], &local_buf[i], 4);
         hw_offset += 4;
+
+        /* Phase 4 outbound: publish channel-voice + real-time messages to
+         * network peers. No-op if midi_net is disabled or no peers. */
+        if (cin >= 0x08 && cin <= 0x0F) {
+            midi_net_publish(&local_buf[i]);
+        }
     }
 }
 

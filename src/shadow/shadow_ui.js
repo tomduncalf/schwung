@@ -830,7 +830,8 @@ const GLOBAL_SETTINGS_SECTIONS = [
     {
         id: "services", label: "Services",
         items: [
-            { key: "filebrowser_enabled", label: "File Browser", type: "bool" }
+            { key: "filebrowser_enabled", label: "File Browser", type: "bool" },
+            { key: "midi_net", label: "MIDI / WiFi", type: "bool" }
         ]
     },
     {
@@ -7557,6 +7558,9 @@ function getMasterFxSettingValue(setting) {
     if (setting.key === "display_mirror") {
         return (typeof display_mirror_get === "function" && display_mirror_get()) ? "On" : "Off";
     }
+    if (setting.key === "midi_net") {
+        return (typeof midi_net_get === "function" && midi_net_get()) ? "On" : "Off";
+    }
     if (setting.key === "screen_reader_enabled") {
         return (typeof tts_get_enabled === "function" && tts_get_enabled()) ? "On" : "Off";
     }
@@ -7678,6 +7682,13 @@ function adjustMasterFxSetting(setting, delta) {
         /* Toggle boolean */
         const current = typeof display_mirror_get === "function" ? display_mirror_get() : false;
         display_mirror_set(!current ? 1 : 0);
+        return;
+    }
+
+    if (setting.key === "midi_net" && typeof midi_net_set === "function") {
+        /* Toggle boolean */
+        const current = typeof midi_net_get === "function" ? midi_net_get() : false;
+        midi_net_set(!current ? 1 : 0);
         return;
     }
 
